@@ -19,6 +19,36 @@ export type Training = {
   tss: number | null;
 };
 
+export type PerformanceRange = "28d" | "90d" | "180d" | "365d";
+
+export type PerformanceSummary = {
+  ctl: number;
+  atl: number;
+  tsb: number;
+  seven_day_tss: number;
+  twenty_eight_day_tss: number;
+  seven_day_training_hours: number;
+  twenty_eight_day_training_hours: number;
+  ramp_rate: number;
+  twenty_eight_day_ctl_change: number;
+};
+
+export type PerformancePoint = {
+  date: string;
+  daily_tss: number;
+  ctl: number;
+  atl: number;
+  tsb: number;
+  ramp_rate: number;
+};
+
+export type PerformanceChartResponse = {
+  range: PerformanceRange;
+  start_date: string;
+  end_date: string;
+  points: PerformancePoint[];
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window === "undefined" ? null : localStorage.getItem("access_token");
   const response = await fetch(`${API_URL}${path}`, {
@@ -38,4 +68,7 @@ export async function authenticate(mode: "login" | "register", email: string, pa
 
 export const getDashboard = () => request<DashboardMetrics>("/dashboard");
 export const getTrainings = () => request<Training[]>("/trainings?limit=5");
-
+export const getPerformanceSummary = () =>
+  request<PerformanceSummary>("/performance/summary");
+export const getPerformanceChart = (range: PerformanceRange) =>
+  request<PerformanceChartResponse>(`/performance/chart?range=${range}`);
