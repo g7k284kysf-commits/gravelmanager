@@ -1,0 +1,5 @@
+services:
+  api:
+    command: ["pytest", "-q"]
+  frontend:
+    command: ["pnpm", "test"]
