@@ -5,6 +5,44 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.core.security import hash_password
 from app.models import AthleteProfile, Training, User
+from app.services.performance import PerformanceCalculationService
+
+WEEK_VARIATION = (0.82, 1.0, 1.12, 0.92)
+SESSION_PLAN: dict[int, tuple[str, int, float, float, int, str]] = {
+    0: ("Recovery", 45, 22.0, 120.0, 28, "Easy recovery ride"),
+    1: ("Threshold", 75, 34.0, 320.0, 88, "Sustained threshold intervals"),
+    2: ("Endurance", 105, 47.0, 410.0, 72, "Aerobic endurance ride"),
+    3: ("VO2max", 70, 30.0, 260.0, 96, "VO2max hill repeats"),
+    5: ("Gravel", 240, 98.0, 1450.0, 205, "Long progressive gravel session"),
+    6: ("Endurance", 120, 52.0, 520.0, 84, "Steady endurance ride"),
+}
+
+
+def generated_training(user_id: int, training_date: date, day_index: int) -> Training | None:
+    if training_date.weekday() == 4:
+        return None
+    if training_date.weekday() == 6 and (day_index // 7) % 4 == 3:
+        return None
+    sport, duration, distance, elevation, base_tss, notes = SESSION_PLAN[training_date.weekday()]
+    factor = WEEK_VARIATION[(day_index // 7) % len(WEEK_VARIATION)]
+    tss = round(base_tss * factor, 1)
+    intensity = min(1.05, round((tss / max(duration, 1)) ** 0.5, 2))
+    return Training(
+        user_id=user_id,
+        date=training_date,
+        sport=sport,
+        duration_minutes=duration,
+        distance_km=round(distance * factor, 1),
+        elevation_m=round(elevation * factor, 1),
+        average_power=round(185 + base_tss * 0.35),
+        normalized_power=round(205 + base_tss * 0.42),
+        average_hr=round(128 + base_tss * 0.18),
+        max_hr=round(155 + base_tss * 0.14),
+        tss=tss,
+        intensity_factor=intensity,
+        calories=round(duration * 10.5),
+        notes=notes,
+    )
 
 
 def seed() -> None:
@@ -26,42 +64,19 @@ def seed() -> None:
                 threshold_hr=174,
             )
         )
-        db.add_all(
-            [
-                Training(
-                    user_id=user.id,
-                    date=date.today() - timedelta(days=2),
-                    sport="Gravel",
-                    duration_minutes=120,
-                    distance_km=52.4,
-                    elevation_m=730,
-                    average_power=212,
-                    normalized_power=238,
-                    average_hr=149,
-                    max_hr=181,
-                    tss=141,
-                    intensity_factor=0.84,
-                    calories=1340,
-                    notes="Steady endurance ride with threshold climbs.",
-                ),
-                Training(
-                    user_id=user.id,
-                    date=date.today(),
-                    sport="Cycling",
-                    duration_minutes=60,
-                    distance_km=28.1,
-                    elevation_m=180,
-                    average_power=198,
-                    normalized_power=221,
-                    average_hr=142,
-                    max_hr=173,
-                    tss=72,
-                    intensity_factor=0.78,
-                    calories=690,
-                    notes="Aerobic recovery spin.",
-                ),
-            ]
-        )
+        first_day = date.today() - timedelta(days=139)
+        trainings = [
+            training
+            for day_index in range(140)
+            if (
+                training := generated_training(
+                    user.id, first_day + timedelta(days=day_index), day_index
+                )
+            )
+        ]
+        db.add_all(trainings)
+        db.flush()
+        PerformanceCalculationService(db).recalculate(user.id)
         db.commit()
 
 
