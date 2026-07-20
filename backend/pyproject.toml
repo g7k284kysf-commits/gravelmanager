@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gravel-manager-api"
+version = "1.0.0"
+description = "Gravel Manager REST API"
+requires-python = ">=3.13"
+dependencies = [
+  "alembic>=1.16,<2",
+  "bcrypt>=4.3,<5",
+  "email-validator>=2.2,<3",
+  "fastapi>=0.116,<1",
+  "pydantic-settings>=2.10,<3",
+  "psycopg[binary]>=3.2,<4",
+  "pyjwt>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "sqlalchemy>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.16,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+strict = true
