@@ -6,8 +6,8 @@ from app.core.config import settings
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.0.0",
-    description="Training management and fitness analytics API.",
+    version=settings.app_version,
+    description="Provider-independent training, performance, planning, and integration API.",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

@@ -14,6 +14,7 @@ class AthleteProfile(Base):
     __tablename__ = "athlete_profiles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     date_of_birth: Mapped[date | None] = mapped_column(Date)

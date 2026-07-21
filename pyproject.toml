@@ -7,5 +7,5 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
-addopts = "-q --disable-warnings"
-
+pythonpath = ["backend"]
+addopts = "-q -W error"

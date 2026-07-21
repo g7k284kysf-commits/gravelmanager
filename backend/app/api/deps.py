@@ -4,6 +4,7 @@ import jwt
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models import User
+from app.services.tenancy import TenantContext, active_tenant_context
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -29,3 +30,16 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_tenant_context(db: DbSession, user: CurrentUser) -> TenantContext:
+    context = active_tenant_context(db, user)
+    if context is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active tenant membership is available",
+        )
+    return context
+
+
+CurrentTenant = Annotated[TenantContext, Depends(get_tenant_context)]
