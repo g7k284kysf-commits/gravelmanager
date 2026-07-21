@@ -1,8 +1,8 @@
 # Deployment guide
 
-Copy `.env.example`, replace both security keys, and run `docker compose up --build`. The stack contains frontend, API, worker, PostgreSQL and Redis. The API applies migrations before serving; the worker consumes durable job messages. Seed only local/demo environments with `docker compose exec api python -m app.seed`.
+Copy `.env.example`, replace both security keys, and run `docker compose up --build`. The stack contains frontend, API, worker, PostgreSQL and Redis. The API applies migrations before serving; the worker consumes durable job messages through Redis. Seed only local/demo environments with `docker compose exec api python -m app.seed`.
 
-For production use managed PostgreSQL/Redis/object storage, TLS at the edge, a generated Fernet key, a separate strong JWT secret, encrypted backups, restricted service identities and centralized redacted logs. Scale workers independently. Do not use the local upload volume across multiple hosts; implement the existing object-storage interface with S3-compatible storage first.
+For production set `ENVIRONMENT=production` and `JOB_BACKEND=dramatiq`, then use managed PostgreSQL/Redis/object storage, TLS at the edge, a generated Fernet key, a separate strong JWT secret, encrypted backups, restricted service identities and centralized redacted logs. Startup validation rejects development keys and a synchronous production job backend. Scale workers independently. Do not use the local upload volume across multiple hosts; implement the existing object-storage interface with S3-compatible storage and malware scanning first. PostgreSQL row-level security is not enabled, so application tenant filters, least-privilege database credentials and the IDOR test suite remain required controls.
 
 Health is `/health`. Readiness should additionally monitor migrations, database connectivity, Redis queue depth, failed sync/import counts and storage capacity.
 

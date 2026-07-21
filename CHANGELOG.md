@@ -18,4 +18,13 @@
 
 ### Security
 
-- Production rejects development credential and JWT secrets; XML entities, unsafe paths and oversized uploads are blocked.
+- Production rejects development credential/JWT secrets and synchronous job execution; XML entities, spoofed formats, unsafe paths and oversized uploads are blocked.
+- Integration events and all object lookups are scoped to both tenant and athlete; nested audit secrets are redacted.
+
+### Known limitations
+
+- Garmin, TrainingPeaks and CORE are non-operational placeholders; no live provider synchronization is claimed.
+- Generic import records are not yet mapped to training entities, and provider polling records await a live adapter.
+- Local upload storage is single-host and has no malware scanner; production requires object storage and scanning.
+- Personal tenants have no switching or invitation UI, and PostgreSQL row-level security is not enabled.
+- Production requires PostgreSQL, Redis, a separately running worker, and operator-managed JWT/Fernet keys.

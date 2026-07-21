@@ -11,8 +11,9 @@ Training, health and wellness data may be sensitive. Retention, export, account 
 ## Threat assessment
 
 - Stolen integration tokens: encrypted at rest, excluded from APIs/logs, revocable; production needs rotation and provider-side revocation monitoring.
-- Malicious uploads: allowlist, bounded streaming, sanitized generated paths and safe parsers; production should add malware scanning.
+- Malicious uploads: extension/MIME/signature allowlists, bounded streaming, sanitized generated paths and safe parsers; production must add malware scanning.
 - Cross-tenant exposure: membership-derived tenant filters and IDOR tests; future defense-in-depth may add PostgreSQL RLS.
+- Secret leakage: credentials are encrypted separately from non-secret configuration; secret-like configuration keys are rejected and nested audit details are recursively redacted.
 - Duplicate delivery and replayed syncs: checksum uniqueness, idempotency keys and active-run control.
 - Oversized files: client feedback plus server-enforced streaming limit.
 - XML attacks: external entities and dangerous constructs are blocked by `defusedxml`.
