@@ -2,6 +2,7 @@ from app.api.deps import DbSession
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.services.tenancy import create_personal_tenant
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
@@ -15,6 +16,8 @@ def register(payload: RegisterRequest, db: DbSession) -> TokenResponse:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = User(email=email, password_hash=hash_password(payload.password))
     db.add(user)
+    db.flush()
+    create_personal_tenant(db, user)
     db.commit()
     db.refresh(user)
     return TokenResponse(

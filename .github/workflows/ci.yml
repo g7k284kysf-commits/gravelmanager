@@ -8,6 +8,21 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: gravel_manager_test
+          POSTGRES_USER: gravel
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gravel -d gravel_manager_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://gravel:test-password@localhost:5432/gravel_manager_test
+      JWT_SECRET: test-secret-that-is-long-enough-for-validation
     defaults:
       run:
         working-directory: backend
@@ -18,9 +33,13 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -e '.[dev]'
+      - run: pip check
       - run: ruff check app tests
       - run: mypy app
-      - run: pytest --cov=app --cov-report=term-missing
+      - run: alembic upgrade head
+      - run: alembic downgrade 0002
+      - run: alembic upgrade head
+      - run: python -m pytest --cov=app --cov-report=term-missing
   frontend:
     runs-on: ubuntu-latest
     defaults:

@@ -13,6 +13,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
   api:
     build: ./backend
     environment:
@@ -21,17 +31,45 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       CTL_TIME_CONSTANT_DAYS: ${CTL_TIME_CONSTANT_DAYS:-42}
       ATL_TIME_CONSTANT_DAYS: ${ATL_TIME_CONSTANT_DAYS:-7}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      STORAGE_ROOT: /data/uploads
+      MAX_UPLOAD_SIZE_BYTES: ${MAX_UPLOAD_SIZE_BYTES:-26214400}
+      JOB_BACKEND: dramatiq
+      REDIS_URL: redis://redis:6379/0
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - upload_data:/data/uploads
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
+  worker:
+    build: ./backend
+    command: ["dramatiq", "app.jobs"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://gravel:change-me@db:5432/gravel_manager}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-in-production}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      STORAGE_ROOT: /data/uploads
+      MAX_UPLOAD_SIZE_BYTES: ${MAX_UPLOAD_SIZE_BYTES:-26214400}
+      JOB_BACKEND: dramatiq
+      REDIS_URL: redis://redis:6379/0
+      JOB_MAX_RETRIES: ${JOB_MAX_RETRIES:-3}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - upload_data:/data/uploads
   frontend:
     build:
       context: ./frontend
@@ -46,3 +84,5 @@ services:
         condition: service_healthy
 volumes:
   postgres_data:
+  redis_data:
+  upload_data:

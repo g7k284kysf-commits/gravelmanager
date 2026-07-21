@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentTenant, CurrentUser, DbSession
 from app.repositories.performance import PerformanceMetricsRepository
 from app.schemas.performance import (
     ChartRange,
@@ -31,9 +31,9 @@ EndDateQuery = Annotated[date | None, Query(examples=["2026-03-31"])]
         "Returns the authenticated athlete's latest unrounded stored training-load metrics."
     ),
 )
-def summary(db: DbSession, user: CurrentUser) -> PerformanceSummary:
+def summary(db: DbSession, user: CurrentUser, tenant: CurrentTenant) -> PerformanceSummary:
     repository = PerformanceMetricsRepository(db)
-    current = repository.latest(user.id)
+    current = repository.latest(tenant.tenant_id, user.id)
     if current is None:
         return PerformanceSummary(
             ctl=ZERO,
@@ -55,7 +55,9 @@ def summary(db: DbSession, user: CurrentUser) -> PerformanceSummary:
         seven_day_training_hours=current.seven_day_training_hours,
         twenty_eight_day_training_hours=current.twenty_eight_day_training_hours,
         ramp_rate=current.ramp_rate,
-        twenty_eight_day_ctl_change=twenty_eight_day_ctl_change(repository, user.id, current),
+        twenty_eight_day_ctl_change=twenty_eight_day_ctl_change(
+            repository, tenant.tenant_id, user.id, current
+        ),
     )
 
 
@@ -68,6 +70,7 @@ def summary(db: DbSession, user: CurrentUser) -> PerformanceSummary:
 def chart(
     db: DbSession,
     user: CurrentUser,
+    tenant: CurrentTenant,
     chart_range: ChartRangeQuery = "90d",
     start_date: StartDateQuery = None,
     end_date: EndDateQuery = None,
@@ -80,7 +83,9 @@ def chart(
         raise HTTPException(status_code=422, detail="start_date must be on or before end_date")
     if (end - start).days > 364:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
-    metrics = PerformanceMetricsRepository(db).metrics_between(user.id, start, end)
+    metrics = PerformanceMetricsRepository(db).metrics_between(
+        tenant.tenant_id, user.id, start, end
+    )
     return PerformanceChartResponse(
         range=chart_range,
         start_date=start,
@@ -97,10 +102,15 @@ def chart(
     description="Idempotently recalculates metrics in the current database transaction.",
 )
 def recalculate(
-    payload: RecalculationRequest, db: DbSession, user: CurrentUser
+    payload: RecalculationRequest,
+    db: DbSession,
+    user: CurrentUser,
+    tenant: CurrentTenant,
 ) -> RecalculationResponse:
     try:
-        result = PerformanceCalculationService(db).recalculate(user.id, payload.start_date)
+        result = PerformanceCalculationService(db).recalculate(
+            tenant.tenant_id, user.id, payload.start_date
+        )
         db.commit()
     except Exception as exc:
         db.rollback()

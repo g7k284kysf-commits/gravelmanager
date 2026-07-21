@@ -9,6 +9,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.athlete import AthleteProfile
     from app.models.performance import DailyPerformanceMetric
+    from app.models.tenant import TenantMembership
     from app.models.training import Training
 
 
@@ -26,5 +27,8 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     performance_metrics: Mapped[list["DailyPerformanceMetric"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    tenant_memberships: Mapped[list["TenantMembership"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

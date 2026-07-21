@@ -5,9 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
-def calculate_dashboard(db: Session, user_id: int) -> DashboardResponse:
-    current = PerformanceMetricsRepository(db).latest(user_id)
-    profile = db.scalar(select(AthleteProfile).where(AthleteProfile.user_id == user_id))
+def calculate_dashboard(db: Session, tenant_id: int, user_id: int) -> DashboardResponse:
+    current = PerformanceMetricsRepository(db).latest(tenant_id, user_id)
+    profile = db.scalar(
+        select(AthleteProfile).where(
+            AthleteProfile.tenant_id == tenant_id,
+            AthleteProfile.user_id == user_id,
+        )
+    )
     return DashboardResponse(
         ftp=profile.ftp if profile else None,
         ctl=round(float(current.ctl), 1) if current else 0.0,

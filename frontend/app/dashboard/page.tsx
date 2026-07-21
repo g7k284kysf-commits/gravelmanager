@@ -27,7 +27,7 @@ export default function DashboardPage() {
       <header className="bg-ink text-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5">
           <Link href="/" className="font-black">GRAVEL<span className="text-gravel">/</span>MANAGER</Link>
-          <span className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-wider">Sprint 2</span>
+          <nav className="flex items-center gap-4 text-xs font-bold uppercase tracking-wider"><Link href="/planning" className="text-white/70 hover:text-gravel">Planning</Link><Link href="/settings/integrations" className="text-white/70 hover:text-gravel">Integrations</Link><span className="hidden rounded-full bg-white/10 px-4 py-2 sm:inline">v0.3</span></nav>
         </div>
       </header>
       <div className="mx-auto max-w-7xl px-5 py-10">

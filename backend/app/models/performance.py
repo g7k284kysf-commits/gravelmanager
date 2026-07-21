@@ -14,11 +14,14 @@ if TYPE_CHECKING:
 class DailyPerformanceMetric(Base):
     __tablename__ = "daily_performance_metrics"
     __table_args__ = (
-        UniqueConstraint("user_id", "metric_date", name="uq_performance_user_date"),
-        Index("ix_performance_user_date", "user_id", "metric_date"),
+        UniqueConstraint(
+            "tenant_id", "user_id", "metric_date", name="uq_performance_tenant_user_date"
+        ),
+        Index("ix_performance_tenant_user_date", "tenant_id", "user_id", "metric_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     metric_date: Mapped[date] = mapped_column(Date)
     daily_tss: Mapped[Decimal] = mapped_column(Numeric(14, 6))

@@ -14,6 +14,7 @@ class Training(Base):
     __tablename__ = "trainings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
     sport: Mapped[str] = mapped_column(String(40))

@@ -49,15 +49,131 @@ export type PerformanceChartResponse = {
   points: PerformancePoint[];
 };
 
+export type IntegrationCapability =
+  | "oauth"
+  | "file_import"
+  | "activity_import"
+  | "planned_workout_import"
+  | "planned_workout_export"
+  | "wellness_import"
+  | "health_metrics_import"
+  | "route_import"
+  | "webhook"
+  | "polling";
+
+export type Provider = {
+  provider_key: string;
+  display_name: string;
+  capabilities: IntegrationCapability[];
+  availability: "coming_soon" | "manual_import_only";
+  description: string;
+  operational: boolean;
+};
+
+export type IntegrationConnection = {
+  id: number;
+  provider_key: string;
+  display_name: string;
+  status: "disconnected" | "pending" | "connected" | "degraded" | "error" | "revoked";
+  scopes: string[];
+  configuration: Record<string, unknown>;
+  last_successful_sync_at: string | null;
+  last_sync_attempt_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  revoked_at: string | null;
+};
+
+export type IntegrationSync = {
+  id: number;
+  connection_id: number;
+  provider_key: string;
+  sync_type: "full" | "incremental" | "manual" | "webhook" | "file_import";
+  status: "queued" | "running" | "succeeded" | "partially_succeeded" | "failed";
+  correlation_id: string;
+  requested_at: string;
+  completed_at: string | null;
+  records_created: number;
+  records_updated: number;
+  records_skipped: number;
+  records_failed: number;
+  error_message: string | null;
+};
+
+export type ImportFile = {
+  id: number;
+  original_filename: string;
+  file_extension: string;
+  file_size_bytes: number;
+  status: "uploaded" | "validating" | "queued" | "processing" | "succeeded" | "partially_succeeded" | "failed" | "rejected";
+  uploaded_at: string;
+  error_message: string | null;
+  metadata: Record<string, unknown> & {
+    records_created?: number;
+    records_updated?: number;
+    records_skipped?: number;
+    records_failed?: number;
+  };
+};
+
+export type IntegrationEvent = {
+  id: number;
+  event_type: string;
+  severity: "info" | "warning" | "error";
+  provider_key: string;
+  connection_id: number | null;
+  message: string;
+  created_at: string;
+};
+
+export type Goal = {
+  id: number;
+  parent_goal_id: number | null;
+  title: string;
+  goal_type: string;
+  priority: string;
+  target_date: string | null;
+  status: string;
+};
+
+export type Competition = {
+  id: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  race_priority: "A" | "B" | "C";
+  status: string;
+  discipline: string | null;
+};
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window === "undefined" ? null : localStorage.getItem("access_token");
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
+    headers: {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(payload.detail ?? "The request could not be completed");
+    const payload = (await response.json().catch(() => ({}))) as {
+      detail?: string | { message?: string; code?: string };
+    };
+    const detail = payload.detail;
+    const message = typeof detail === "string" ? detail : detail?.message;
+    const code = typeof detail === "object" ? detail?.code : undefined;
+    throw new ApiError(message ?? "The request could not be completed", response.status, code);
   }
   return response.status === 204 ? (undefined as T) : response.json() as Promise<T>;
 }
@@ -72,3 +188,46 @@ export const getPerformanceSummary = () =>
   request<PerformanceSummary>("/performance/summary");
 export const getPerformanceChart = (range: PerformanceRange) =>
   request<PerformanceChartResponse>(`/performance/chart?range=${range}`);
+
+export const getProviders = () => request<Provider[]>("/integrations/providers");
+export const getConnections = () =>
+  request<IntegrationConnection[]>("/integrations/connections");
+export const getConnection = (id: number) =>
+  request<IntegrationConnection>(`/integrations/connections/${id}`);
+export const createConnection = (providerKey: string) =>
+  request<IntegrationConnection>("/integrations/connections", {
+    method: "POST",
+    body: JSON.stringify({ provider_key: providerKey }),
+  });
+export const testConnection = (id: number) =>
+  request<{ supported: boolean; succeeded: boolean; message: string }>(
+    `/integrations/connections/${id}/test`,
+    { method: "POST" },
+  );
+export const revokeConnection = (id: number) =>
+  request<IntegrationConnection>(`/integrations/connections/${id}/revoke`, {
+    method: "POST",
+  });
+export const startConnectionSync = (id: number) =>
+  request<IntegrationSync>(`/integrations/connections/${id}/sync`, {
+    method: "POST",
+    body: JSON.stringify({ sync_type: "manual" }),
+  });
+export const getSyncs = (connectionId?: number) =>
+  request<IntegrationSync[]>(`/integrations/syncs${connectionId ? `?connection_id=${connectionId}` : ""}`);
+export const getIntegrationEvents = (connectionId?: number) =>
+  request<IntegrationEvent[]>(`/integrations/events${connectionId ? `?connection_id=${connectionId}` : ""}`);
+export const getImports = () => request<ImportFile[]>("/imports/files");
+export const uploadImport = (file: File) => {
+  const body = new FormData();
+  body.append("file", file);
+  return request<ImportFile>("/imports/files", { method: "POST", body });
+};
+export const processImport = (id: number) =>
+  request<{ id: number; status: ImportFile["status"]; message: string }>(
+    `/imports/files/${id}/process`,
+    { method: "POST" },
+  );
+export const getGoals = () => request<Goal[]>("/planning/goals");
+export const getCompetitions = () =>
+  request<Competition[]>("/planning/competitions");

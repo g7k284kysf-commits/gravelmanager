@@ -1,6 +1,6 @@
 # Gravel Manager
 
-A production-oriented training platform for gravel athletes. Sprint 2 adds a persistent Performance Manager: deterministic CTL, ATL, TSB, rolling load, training hours and ramp-rate calculations; authenticated summary and chart APIs; automatic recalculation after training changes; and a responsive dashboard chart.
+A production-oriented training platform for gravel athletes. Version 0.3.0 adds tenant-safe planning, hierarchical goals, A/B/C competitions, secure manual FIT/TCX/GPX/CSV ingestion, durable background jobs and an extensible provider architecture. Garmin, TrainingPeaks and CORE are architectural placeholders marked coming soon; no live external integration is claimed.
 
 ## Start locally
 
@@ -23,7 +23,11 @@ Seed a deterministic 140-day training history after the API container starts:
 docker compose exec api python -m app.seed
 ```
 
-The seed includes hard days, recovery rides, long gravel sessions and true rest days. Sign in with `demo@gravelmanager.app` and `GravelDemo!2026`. Change or remove that account outside local development.
+The seed includes training history, a season, hierarchical goals and A/B/C competitions, but no fake external connection. Sign in with `demo@gravelmanager.app` and `GravelDemo!2026`. Change or remove that account outside local development.
+
+## Integration platform
+
+Manual uploads stream through validated object storage, are deduplicated by SHA-256 and processed by a Redis/Dramatiq worker. Import and sync state, counters, safe errors and correlation-aware audit events are persisted in PostgreSQL. Provider credentials use versioned Fernet encryption and are never returned by the API. See [integration architecture](docs/integrations.md), [security](docs/security.md) and [deployment](docs/deployment.md).
 
 ## Performance model
 
@@ -62,7 +66,7 @@ pnpm dev
 ## Quality checks
 
 ```bash
-cd backend && ruff check app tests && mypy app && pytest
+cd backend && ruff check app tests && mypy app && python -m pytest
 cd frontend && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 docker compose config --quiet
 docker compose build

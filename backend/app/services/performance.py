@@ -27,16 +27,18 @@ class PerformanceCalculationService:
         self.session = session
         self.repository = PerformanceMetricsRepository(session)
 
-    def recalculate(self, user_id: int, start_date: date | None = None) -> RecalculationResult:
-        first_training, last_training = self.repository.training_bounds(user_id)
+    def recalculate(
+        self, tenant_id: int, user_id: int, start_date: date | None = None
+    ) -> RecalculationResult:
+        first_training, last_training = self.repository.training_bounds(tenant_id, user_id)
         if first_training is None or last_training is None:
-            self.repository.delete_all(user_id)
+            self.repository.delete_all(tenant_id, user_id)
             logger.info("Cleared performance metrics for user %s with no training history", user_id)
             return RecalculationResult(None, None, 0)
 
-        self.repository.delete_before(user_id, first_training)
+        self.repository.delete_before(tenant_id, user_id, first_training)
         timeline_end = max(date.today(), last_training)
-        loads = self.repository.daily_loads(user_id, first_training, timeline_end)
+        loads = self.repository.daily_loads(tenant_id, user_id, first_training, timeline_end)
         calculated = calculate_timeline(
             loads,
             first_training,
@@ -48,11 +50,15 @@ class PerformanceCalculationService:
         metrics_to_write = [
             metric for metric in calculated if metric.metric_date >= effective_start
         ]
-        existing = self.repository.existing_from(user_id, effective_start)
+        existing = self.repository.existing_from(tenant_id, user_id, effective_start)
         for metric in metrics_to_write:
             row = existing.get(metric.metric_date)
             if row is None:
-                row = DailyPerformanceMetric(user_id=user_id, metric_date=metric.metric_date)
+                row = DailyPerformanceMetric(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    metric_date=metric.metric_date,
+                )
                 self.session.add(row)
             self._copy_values(row, metric)
 
@@ -79,7 +85,10 @@ class PerformanceCalculationService:
 
 
 def twenty_eight_day_ctl_change(
-    repository: PerformanceMetricsRepository, user_id: int, current: DailyPerformanceMetric
+    repository: PerformanceMetricsRepository,
+    tenant_id: int,
+    user_id: int,
+    current: DailyPerformanceMetric,
 ) -> Decimal:
-    prior = repository.at_date(user_id, current.metric_date - timedelta(days=28))
+    prior = repository.at_date(tenant_id, user_id, current.metric_date - timedelta(days=28))
     return current.ctl - prior.ctl if prior else ZERO
