@@ -46,7 +46,34 @@ def validate_goal_links(db: Session, payload: GoalInput, tenant: CurrentTenant) 
     if payload.season_id is not None:
         validate_season(db, payload.season_id, tenant)
     if payload.parent_goal_id is not None:
-        owned(db, Goal, payload.parent_goal_id, tenant.tenant_id, tenant.athlete_id)
+        parent = owned(db, Goal, payload.parent_goal_id, tenant.tenant_id, tenant.athlete_id)
+        if (
+            payload.season_id is not None
+            and parent.season_id is not None
+            and payload.season_id != parent.season_id
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="A child goal must belong to the same season as its parent",
+            )
+
+
+def validate_goal_hierarchy(
+    db: Session,
+    *,
+    goal_id: int | None,
+    parent_goal_id: int | None,
+    tenant: CurrentTenant,
+) -> None:
+    """Walk the prospective ancestry iteratively and reject direct or indirect cycles."""
+    current_id = parent_goal_id
+    visited: set[int] = set()
+    while current_id is not None:
+        if current_id == goal_id or current_id in visited:
+            raise HTTPException(status_code=422, detail="Goal hierarchy cannot contain a cycle")
+        visited.add(current_id)
+        current = owned(db, Goal, current_id, tenant.tenant_id, tenant.athlete_id)
+        current_id = current.parent_goal_id
 
 
 def validate_competition_links(
@@ -143,6 +170,7 @@ def list_goals(
 @router.post("/goals", response_model=GoalResponse, status_code=status.HTTP_201_CREATED)
 def create_goal(payload: GoalInput, db: DbSession, tenant: CurrentTenant) -> Goal:
     validate_goal_links(db, payload, tenant)
+    validate_goal_hierarchy(db, goal_id=None, parent_goal_id=payload.parent_goal_id, tenant=tenant)
     goal = Goal(
         tenant_id=tenant.tenant_id,
         athlete_id=tenant.athlete_id,
@@ -162,9 +190,10 @@ def get_goal(goal_id: int, db: DbSession, tenant: CurrentTenant) -> Goal:
 @router.put("/goals/{goal_id}", response_model=GoalResponse)
 def update_goal(goal_id: int, payload: GoalInput, db: DbSession, tenant: CurrentTenant) -> Goal:
     goal = owned(db, Goal, goal_id, tenant.tenant_id, tenant.athlete_id)
-    if payload.parent_goal_id == goal.id:
-        raise HTTPException(status_code=422, detail="A goal cannot be its own parent")
     validate_goal_links(db, payload, tenant)
+    validate_goal_hierarchy(
+        db, goal_id=goal.id, parent_goal_id=payload.parent_goal_id, tenant=tenant
+    )
     for field, value in payload.model_dump().items():
         setattr(goal, field, value)
     db.commit()

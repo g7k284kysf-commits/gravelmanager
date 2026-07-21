@@ -101,6 +101,26 @@ def test_planning_validation_and_tenant_isolation(
     season = client.post(
         "/api/v1/planning/seasons", headers=auth_headers, json=season_payload()
     ).json()
+    goal = client.post(
+        "/api/v1/planning/goals",
+        headers=auth_headers,
+        json={
+            "season_id": season["id"],
+            "title": "Private goal",
+            "goal_type": "custom",
+        },
+    ).json()
+    competition = client.post(
+        "/api/v1/planning/competitions",
+        headers=auth_headers,
+        json={
+            "season_id": season["id"],
+            "name": "Private race",
+            "start_date": "2027-05-01",
+            "end_date": "2027-05-01",
+            "race_priority": "B",
+        },
+    ).json()
     second = client.post(
         "/api/v1/auth/register",
         json={"email": "other-planner@example.com", "password": "StrongPassword!42"},
@@ -120,9 +140,109 @@ def test_planning_validation_and_tenant_isolation(
         },
     )
     assert cross_parent.status_code == 404
+    assert (
+        client.put(
+            f"/api/v1/planning/seasons/{season['id']}",
+            headers=other_headers,
+            json=season_payload("Stolen season"),
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"/api/v1/planning/seasons/{season['id']}", headers=other_headers).status_code
+        == 404
+    )
+    assert (
+        client.put(
+            f"/api/v1/planning/goals/{goal['id']}",
+            headers=other_headers,
+            json={"title": "Stolen goal", "goal_type": "custom"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"/api/v1/planning/goals/{goal['id']}", headers=other_headers).status_code
+        == 404
+    )
+    assert (
+        client.put(
+            f"/api/v1/planning/competitions/{competition['id']}",
+            headers=other_headers,
+            json={
+                "season_id": season["id"],
+                "name": "Stolen race",
+                "start_date": "2027-05-01",
+                "end_date": "2027-05-01",
+                "race_priority": "B",
+            },
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(
+            f"/api/v1/planning/competitions/{competition['id']}", headers=other_headers
+        ).status_code
+        == 404
+    )
 
 
 def test_planning_requires_authentication(client: TestClient) -> None:
     assert client.get("/api/v1/planning/seasons").status_code == 401
     assert client.get("/api/v1/planning/goals").status_code == 401
     assert client.get("/api/v1/planning/competitions").status_code == 401
+
+
+def test_goal_hierarchy_rejects_direct_and_indirect_cycles(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    season_id = client.post(
+        "/api/v1/planning/seasons", headers=auth_headers, json=season_payload()
+    ).json()["id"]
+
+    def create(title: str, parent_goal_id: int | None = None) -> dict[str, object]:
+        return client.post(
+            "/api/v1/planning/goals",
+            headers=auth_headers,
+            json={
+                "season_id": season_id,
+                "parent_goal_id": parent_goal_id,
+                "title": title,
+                "goal_type": "custom",
+            },
+        ).json()
+
+    goal_a = create("Goal A")
+    goal_b = create("Goal B", int(goal_a["id"]))
+    goal_c = create("Goal C", int(goal_b["id"]))
+
+    direct = client.put(
+        f"/api/v1/planning/goals/{goal_a['id']}",
+        headers=auth_headers,
+        json={
+            "season_id": season_id,
+            "parent_goal_id": goal_a["id"],
+            "title": "Goal A",
+            "goal_type": "custom",
+        },
+    )
+    assert direct.status_code == 422
+    assert direct.json()["detail"] == "Goal hierarchy cannot contain a cycle"
+
+    three_node_cycle = client.put(
+        f"/api/v1/planning/goals/{goal_a['id']}",
+        headers=auth_headers,
+        json={
+            "season_id": season_id,
+            "parent_goal_id": goal_c["id"],
+            "title": "Goal A",
+            "goal_type": "custom",
+        },
+    )
+    assert three_node_cycle.status_code == 422
+    assert three_node_cycle.json()["detail"] == "Goal hierarchy cannot contain a cycle"
+    assert (
+        client.get(f"/api/v1/planning/goals/{goal_a['id']}", headers=auth_headers).json()[
+            "parent_goal_id"
+        ]
+        is None
+    )
