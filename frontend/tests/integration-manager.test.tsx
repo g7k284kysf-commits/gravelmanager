@@ -14,15 +14,19 @@ import {
   type Provider,
 } from "@/lib/api";
 
-vi.mock("@/lib/api", () => ({
-  getProviders: vi.fn(),
-  getConnections: vi.fn(),
-  getImports: vi.fn(),
-  getSyncs: vi.fn(),
-  createConnection: vi.fn(),
-  uploadImport: vi.fn(),
-  processImport: vi.fn(),
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    getProviders: vi.fn(),
+    getConnections: vi.fn(),
+    getImports: vi.fn(),
+    getSyncs: vi.fn(),
+    createConnection: vi.fn(),
+    uploadImport: vi.fn(),
+    processImport: vi.fn(),
+  };
+});
 
 const providerData: Provider[] = [
   { provider_key: "manual_upload", display_name: "Manual upload", capabilities: ["file_import"], availability: "manual_import_only", description: "Upload files.", operational: true },
