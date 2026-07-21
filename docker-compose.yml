@@ -19,6 +19,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://gravel:change-me@db:5432/gravel_manager}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-in-production}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CTL_TIME_CONSTANT_DAYS: ${CTL_TIME_CONSTANT_DAYS:-42}
+      ATL_TIME_CONSTANT_DAYS: ${ATL_TIME_CONSTANT_DAYS:-7}
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"

@@ -7,7 +7,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM dependencies AS test
 COPY . .
-RUN pnpm lint && pnpm test
+RUN pnpm lint && pnpm typecheck && pnpm test
 
 FROM node:22-alpine AS builder
 WORKDIR /app

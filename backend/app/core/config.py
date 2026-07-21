@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="development-secret-change-before-production", min_length=32)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    ctl_time_constant_days: int = Field(default=42, gt=0)
+    atl_time_constant_days: int = Field(default=7, gt=0)
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")

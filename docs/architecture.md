@@ -6,7 +6,7 @@ Requests enter through versioned `/api/v1` routes. JWT subjects resolve to datab
 
 ## Training load
 
-The dashboard derives Chronic Training Load (CTL) from a 42-day exponential response and Acute Training Load (ATL) from a 7-day response. Training Stress Balance (TSB) is `CTL - ATL`. Missing TSS values contribute zero rather than being estimated.
+The Performance Manager stores a continuous daily timeline. A pure Decimal-based domain engine calculates Chronic Training Load (CTL) with a 42-day exponential response and Acute Training Load (ATL) with a 7-day response. Training Stress Balance (TSB) is the previous day's CTL minus ATL; missing training days contribute zero TSS and therefore model recovery correctly. API serialization rounds values to two decimal places without reducing stored precision.
 
 ## Security
 
@@ -14,4 +14,3 @@ The dashboard derives Chronic Training Load (CTL) from a 42-day exponential resp
 - Access tokens are signed JWTs with explicit type, issued-at, expiry, and subject claims.
 - Protected resources are always filtered by the authenticated user.
 - Secrets enter containers through environment variables and are never committed.
-
