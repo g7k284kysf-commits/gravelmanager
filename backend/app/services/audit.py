@@ -1,6 +1,7 @@
 import json
 import logging
 
+from app.integrations.redaction import redact_sensitive
 from app.models.integration import EventSeverity, IntegrationEvent
 from sqlalchemy.orm import Session
 
@@ -26,7 +27,8 @@ class IntegrationAuditService:
         import_file_id: int | None = None,
         details: dict[str, object] | None = None,
     ) -> IntegrationEvent:
-        safe_details = details or {}
+        redacted = redact_sensitive(details or {})
+        safe_details = redacted if isinstance(redacted, dict) else {}
         event = IntegrationEvent(
             tenant_id=tenant_id,
             athlete_id=athlete_id,

@@ -12,6 +12,40 @@ class ProviderMetadata:
     capabilities: tuple[IntegrationCapability, ...]
     availability: str
     description: str
+    operational: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSyncResult:
+    records: tuple[NormalizedImportRecord, ...]
+    cursor: str | None
+    records_created: int
+    records_updated: int = 0
+    records_skipped: int = 0
+    records_failed: int = 0
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.records_created,
+            self.records_updated,
+            self.records_skipped,
+            self.records_failed,
+        )
+        if any(count < 0 for count in counts):
+            raise ValueError("Provider sync counters cannot be negative")
+        if self.records_created + self.records_updated > len(self.records):
+            raise ValueError("Successful sync counters exceed normalized records")
+
+    @property
+    def records_discovered(self) -> int:
+        return sum(
+            (
+                self.records_created,
+                self.records_updated,
+                self.records_skipped,
+                self.records_failed,
+            )
+        )
 
 
 class IntegrationProvider(ABC):
@@ -20,6 +54,7 @@ class IntegrationProvider(ABC):
     capabilities: frozenset[IntegrationCapability] = frozenset()
     availability = "coming_soon"
     description = "Provider foundation is available; live connectivity is not enabled."
+    operational = False
 
     def metadata(self) -> ProviderMetadata:
         return ProviderMetadata(
@@ -28,6 +63,7 @@ class IntegrationProvider(ABC):
             capabilities=tuple(sorted(self.capabilities, key=str)),
             availability=self.availability,
             description=self.description,
+            operational=self.operational,
         )
 
     def supports(self, capability: IntegrationCapability) -> bool:
@@ -49,9 +85,7 @@ class IntegrationProvider(ABC):
     def test_connection(self) -> bool:
         raise ProviderOperationNotSupported("Connection testing is not available")
 
-    def start_sync(
-        self, cursor: str | None = None
-    ) -> tuple[list[NormalizedImportRecord], str | None]:
+    def start_sync(self, cursor: str | None = None) -> ProviderSyncResult:
         raise ProviderOperationNotSupported("Synchronization is not available")
 
     def import_file(self, storage_key: str) -> list[NormalizedImportRecord]:
@@ -73,6 +107,7 @@ class PlaceholderProvider(IntegrationProvider):
 class ManualUploadProvider(PlaceholderProvider):
     availability = "manual_import_only"
     description = "Upload FIT, TCX, GPX, or CSV files manually."
+    operational = True
 
     def __init__(self) -> None:
         super().__init__(

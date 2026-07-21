@@ -294,7 +294,21 @@ def upgrade() -> None:
         sa.Column("error_code", sa.String(80)),
         sa.Column("error_message", sa.String(500)),
         sa.Column("metadata", sa.JSON(), nullable=False),
-        sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_sync_idempotency"),
+        sa.UniqueConstraint(
+            "tenant_id",
+            "athlete_id",
+            "connection_id",
+            "idempotency_key",
+            name="uq_sync_idempotency",
+        ),
+    )
+    op.create_index(
+        "uq_sync_connection_active",
+        "integration_syncs",
+        ["connection_id"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('QUEUED', 'RUNNING')"),
+        sqlite_where=sa.text("status IN ('QUEUED', 'RUNNING')"),
     )
     op.create_index(
         "ix_sync_provider_status",

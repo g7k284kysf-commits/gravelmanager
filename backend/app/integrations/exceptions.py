@@ -16,6 +16,14 @@ class ProviderTemporaryError(IntegrationError):
     retryable = True
 
 
+class InvalidSyncStateError(IntegrationError):
+    code = "invalid_sync_state"
+
+
+class ProviderExecutionError(IntegrationError):
+    code = "provider_execution_error"
+
+
 class CredentialConfigurationError(IntegrationError):
     code = "credential_configuration_error"
 

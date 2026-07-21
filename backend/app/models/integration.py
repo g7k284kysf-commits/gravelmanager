@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,7 +35,6 @@ class SyncStatus(StrEnum):
     SUCCEEDED = "succeeded"
     PARTIALLY_SUCCEEDED = "partially_succeeded"
     FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class SyncType(StrEnum):
@@ -104,7 +104,20 @@ class IntegrationConnection(Base):
 class IntegrationSync(Base):
     __tablename__ = "integration_syncs"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_sync_idempotency"),
+        UniqueConstraint(
+            "tenant_id",
+            "athlete_id",
+            "connection_id",
+            "idempotency_key",
+            name="uq_sync_idempotency",
+        ),
+        Index(
+            "uq_sync_connection_active",
+            "connection_id",
+            unique=True,
+            postgresql_where=text("status IN ('QUEUED', 'RUNNING')"),
+            sqlite_where=text("status IN ('QUEUED', 'RUNNING')"),
+        ),
         Index("ix_sync_provider_status", "tenant_id", "provider_key", "status"),
         Index("ix_sync_connection_requested", "connection_id", "requested_at"),
     )

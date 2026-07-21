@@ -132,18 +132,18 @@ def create_connection(
         encrypted_credentials=encrypted_credentials,
     )
     db.add(connection)
-    db.flush()
-    IntegrationAuditService(db).record(
-        tenant_id=tenant.tenant_id,
-        athlete_id=tenant.athlete_id,
-        provider_key=provider.provider_key,
-        event_type="connection_created",
-        message="Integration connection created",
-        correlation_id=f"connection-{connection.id}",
-        connection_id=connection.id,
-        details={"availability": provider.availability},
-    )
     try:
+        db.flush()
+        IntegrationAuditService(db).record(
+            tenant_id=tenant.tenant_id,
+            athlete_id=tenant.athlete_id,
+            provider_key=provider.provider_key,
+            event_type="connection_created",
+            message="Integration connection created",
+            correlation_id=f"connection-{connection.id}",
+            connection_id=connection.id,
+            details={"availability": provider.availability},
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -198,6 +198,8 @@ def revoke_connection(
     connection_id: int, db: DbSession, tenant: CurrentTenant
 ) -> IntegrationConnection:
     connection = owned_connection(connection_id, db, tenant)
+    if connection.status == ConnectionStatus.REVOKED:
+        raise HTTPException(status_code=409, detail="Connection is already revoked")
     provider_registry.get(connection.provider_key).revoke_authorization()
     connection.status = ConnectionStatus.REVOKED
     connection.revoked_at = datetime.now(UTC)
@@ -221,6 +223,8 @@ def test_connection(
     connection_id: int, db: DbSession, tenant: CurrentTenant
 ) -> ConnectionTestResponse:
     connection = owned_connection(connection_id, db, tenant)
+    if connection.status != ConnectionStatus.CONNECTED:
+        raise HTTPException(status_code=409, detail="Connection is not active")
     provider = provider_registry.get(connection.provider_key)
     try:
         succeeded = provider.test_connection()
@@ -271,13 +275,36 @@ def start_sync(
     tenant: CurrentTenant,
 ) -> IntegrationSync:
     connection = owned_connection(connection_id, db, tenant)
+    if connection.status != ConnectionStatus.CONNECTED:
+        raise HTTPException(status_code=409, detail="Connection is not active")
     try:
         sync, created = SynchronizationService(db, provider_registry).request(
             connection, payload.sync_type, payload.idempotency_key
         )
+        db.commit()
+    except ProviderOperationNotSupported as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrationError as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if payload.idempotency_key:
+            existing = db.scalar(
+                select(IntegrationSync).where(
+                    IntegrationSync.tenant_id == tenant.tenant_id,
+                    IntegrationSync.athlete_id == tenant.athlete_id,
+                    IntegrationSync.connection_id == connection.id,
+                    IntegrationSync.idempotency_key == payload.idempotency_key,
+                )
+            )
+            if existing is not None:
+                return existing
+        raise HTTPException(
+            status_code=409,
+            detail="A synchronization is already active for this connection",
+        ) from exc
     if created:
         get_job_dispatcher().integration_sync(sync.id)
         db.refresh(sync)
@@ -292,6 +319,7 @@ def syncs(
     offset: Offset = 0,
     provider_key: Annotated[str | None, Query(max_length=80)] = None,
     sync_status: SyncStatus | None = None,
+    connection_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> list[IntegrationSync]:
     statement = select(IntegrationSync).where(
         IntegrationSync.tenant_id == tenant.tenant_id,
@@ -301,6 +329,8 @@ def syncs(
         statement = statement.where(IntegrationSync.provider_key == provider_key)
     if sync_status:
         statement = statement.where(IntegrationSync.status == sync_status)
+    if connection_id:
+        statement = statement.where(IntegrationSync.connection_id == connection_id)
     return list(
         db.scalars(
             statement.order_by(IntegrationSync.requested_at.desc()).limit(limit).offset(offset)
@@ -318,15 +348,37 @@ def retry_sync(sync_id: int, db: DbSession, tenant: CurrentTenant) -> Integratio
     sync = owned_sync(sync_id, db, tenant)
     if sync.status != SyncStatus.FAILED:
         raise HTTPException(status_code=409, detail="Only failed syncs can be retried")
+    if not sync.sync_metadata.get("retryable", False):
+        raise HTTPException(status_code=409, detail="Synchronization failure is not retryable")
     previous_attempts = sync.sync_metadata.get("retry_attempts", 0)
     attempts = (previous_attempts if isinstance(previous_attempts, int) else 0) + 1
     if attempts > settings.job_max_retries:
         raise HTTPException(status_code=409, detail="Synchronization retry limit reached")
+    active = db.scalar(
+        select(IntegrationSync).where(
+            IntegrationSync.tenant_id == tenant.tenant_id,
+            IntegrationSync.athlete_id == tenant.athlete_id,
+            IntegrationSync.connection_id == sync.connection_id,
+            IntegrationSync.status.in_([SyncStatus.QUEUED, SyncStatus.RUNNING]),
+        )
+    )
+    if active is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A synchronization is already active for this connection",
+        )
     sync.sync_metadata = {**sync.sync_metadata, "retry_attempts": attempts}
     sync.status = SyncStatus.QUEUED
     sync.error_code = None
     sync.error_message = None
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A synchronization is already active for this connection",
+        ) from exc
     get_job_dispatcher().integration_sync(sync.id)
     db.refresh(sync)
     return sync
@@ -340,12 +392,18 @@ def events(
     offset: Offset = 0,
     provider_key: Annotated[str | None, Query(max_length=80)] = None,
     severity: EventSeverity | None = None,
+    connection_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> list[IntegrationEvent]:
-    statement = select(IntegrationEvent).where(IntegrationEvent.tenant_id == tenant.tenant_id)
+    statement = select(IntegrationEvent).where(
+        IntegrationEvent.tenant_id == tenant.tenant_id,
+        IntegrationEvent.athlete_id == tenant.athlete_id,
+    )
     if provider_key:
         statement = statement.where(IntegrationEvent.provider_key == provider_key)
     if severity:
         statement = statement.where(IntegrationEvent.severity == severity)
+    if connection_id:
+        statement = statement.where(IntegrationEvent.connection_id == connection_id)
     return list(
         db.scalars(
             statement.order_by(IntegrationEvent.created_at.desc()).limit(limit).offset(offset)

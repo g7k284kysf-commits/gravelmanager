@@ -2,12 +2,14 @@ from typing import Protocol
 
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.integrations.exceptions import IntegrationError
 from app.integrations.providers import provider_registry
 from app.models import ImportFile, IntegrationSync
+from app.models.integration import ImportFileStatus, SyncStatus
 from app.services.imports import ImportService, local_storage
 from app.services.synchronization import SynchronizationService
 
@@ -20,8 +22,10 @@ class JobDispatcher(Protocol):
 
 def process_import_file(import_file_id: int) -> None:
     with SessionLocal() as db:
-        import_file = db.get(ImportFile, import_file_id)
-        if import_file is None:
+        import_file = db.scalar(
+            select(ImportFile).where(ImportFile.id == import_file_id).with_for_update()
+        )
+        if import_file is None or import_file.status != ImportFileStatus.QUEUED:
             return
         service = ImportService(
             db, local_storage(settings.storage_root, settings.max_upload_size_bytes)
@@ -32,16 +36,18 @@ def process_import_file(import_file_id: int) -> None:
 
 def execute_integration_sync(sync_id: int) -> None:
     with SessionLocal() as db:
-        sync = db.get(IntegrationSync, sync_id)
-        if sync is None:
+        sync = db.scalar(
+            select(IntegrationSync).where(IntegrationSync.id == sync_id).with_for_update()
+        )
+        if sync is None or sync.status not in {SyncStatus.QUEUED, SyncStatus.FAILED}:
             return
         try:
             SynchronizationService(db, provider_registry).execute(sync)
             db.commit()
         except IntegrationError as exc:
+            db.commit()
             if exc.retryable:
-                db.commit()
-            raise
+                raise
 
 
 if settings.job_backend == "dramatiq":

@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 from typing import Any
 
@@ -11,11 +12,11 @@ class CredentialEncryptionService:
 
     def __init__(self, key: str) -> None:
         try:
-            decoded = base64.urlsafe_b64decode(key.encode())
+            decoded = base64.b64decode(key.encode("ascii"), altchars=b"-_", validate=True)
             if len(decoded) != 32:
                 raise ValueError
             self._fernet = Fernet(key.encode())
-        except (ValueError, TypeError) as exc:
+        except (binascii.Error, UnicodeEncodeError, ValueError, TypeError) as exc:
             raise CredentialConfigurationError(
                 "Credential encryption key must be a URL-safe base64 encoded 32-byte key"
             ) from exc

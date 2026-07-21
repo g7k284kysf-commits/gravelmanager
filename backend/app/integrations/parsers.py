@@ -69,20 +69,23 @@ class GpxFileParser(FileParser):
         if local_name(root.tag).lower() != "gpx":
             raise ImportParseError("File does not contain a GPX document")
         points: list[dict[str, object]] = []
-        for element in root.iter():
-            if local_name(element.tag) != "trkpt":
-                continue
-            point: dict[str, object] = {
-                "latitude": float(element.attrib["lat"]),
-                "longitude": float(element.attrib["lon"]),
-            }
-            for child in element:
-                name = local_name(child.tag)
-                if child.text and name == "ele":
-                    point["elevation_meters"] = float(child.text)
-                elif child.text and name == "time":
-                    point["time"] = parse_datetime(child.text).isoformat()
-            points.append(point)
+        try:
+            for element in root.iter():
+                if local_name(element.tag) != "trkpt":
+                    continue
+                point: dict[str, object] = {
+                    "latitude": float(element.attrib["lat"]),
+                    "longitude": float(element.attrib["lon"]),
+                }
+                for child in element:
+                    name = local_name(child.tag)
+                    if child.text and name == "ele":
+                        point["elevation_meters"] = float(child.text)
+                    elif child.text and name == "time":
+                        point["time"] = parse_datetime(child.text).isoformat()
+                points.append(point)
+        except (KeyError, OverflowError, ValueError) as exc:
+            raise ImportParseError("GPX file contains invalid trackpoint data") from exc
         if not points:
             raise ImportParseError("GPX file contains no trackpoints")
         return [
@@ -104,29 +107,34 @@ class TcxFileParser(FileParser):
         if local_name(root.tag) != "TrainingCenterDatabase":
             raise ImportParseError("File does not contain a TCX document")
         records: list[NormalizedImportRecord] = []
-        for activity in (item for item in root.iter() if local_name(item.tag) == "Activity"):
-            trackpoints: list[dict[str, object]] = []
-            for point in (item for item in activity.iter() if local_name(item.tag) == "Trackpoint"):
-                values: dict[str, object] = {}
-                for child in point.iter():
-                    name = local_name(child.tag)
-                    if child.text and name == "Time":
-                        values["time"] = parse_datetime(child.text).isoformat()
-                    elif child.text and name in {"AltitudeMeters", "DistanceMeters"}:
-                        values[name] = float(child.text)
-                if values:
-                    trackpoints.append(values)
-            records.append(
-                NormalizedImportRecord(
-                    record_type="activity",
-                    external_id=activity.attrib.get("Sport"),
-                    normalized_payload={
-                        "format": "tcx",
-                        "sport": activity.attrib.get("Sport", "Other"),
-                        "trackpoints": trackpoints,
-                    },
+        try:
+            for activity in (item for item in root.iter() if local_name(item.tag) == "Activity"):
+                trackpoints: list[dict[str, object]] = []
+                for point in (
+                    item for item in activity.iter() if local_name(item.tag) == "Trackpoint"
+                ):
+                    values: dict[str, object] = {}
+                    for child in point.iter():
+                        name = local_name(child.tag)
+                        if child.text and name == "Time":
+                            values["time"] = parse_datetime(child.text).isoformat()
+                        elif child.text and name in {"AltitudeMeters", "DistanceMeters"}:
+                            values[name] = float(child.text)
+                    if values:
+                        trackpoints.append(values)
+                records.append(
+                    NormalizedImportRecord(
+                        record_type="activity",
+                        external_id=activity.attrib.get("Sport"),
+                        normalized_payload={
+                            "format": "tcx",
+                            "sport": activity.attrib.get("Sport", "Other"),
+                            "trackpoints": trackpoints,
+                        },
+                    )
                 )
-            )
+        except (OverflowError, ValueError) as exc:
+            raise ImportParseError("TCX file contains invalid activity data") from exc
         if not records:
             raise ImportParseError("TCX file contains no activities")
         return records

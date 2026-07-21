@@ -18,6 +18,7 @@ from app.models.integration import (
 )
 from app.services.audit import IntegrationAuditService
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
@@ -77,7 +78,23 @@ class ImportService:
             file_metadata={},
         )
         self.db.add(import_file)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            self.storage.delete(stored.storage_key)
+            duplicate = self.db.scalar(
+                select(ImportFile).where(
+                    ImportFile.tenant_id == tenant_id,
+                    ImportFile.athlete_id == athlete_id,
+                    ImportFile.checksum_sha256 == stored.checksum_sha256,
+                )
+            )
+            if duplicate is None:
+                raise
+            self._record_duplicate(duplicate)
+            self.db.commit()
+            raise DuplicateImportError(duplicate.id) from exc
         self.audit.record(
             tenant_id=tenant_id,
             athlete_id=athlete_id,
@@ -112,6 +129,10 @@ class ImportService:
         )
 
     def process(self, import_file: ImportFile) -> ImportFile:
+        if import_file.status != ImportFileStatus.QUEUED:
+            raise StorageValidationError(
+                f"Import cannot run from status {import_file.status.value}"
+            )
         import_file.status = ImportFileStatus.PROCESSING
         import_file.processing_started_at = datetime.now(UTC)
         self.db.flush()
@@ -138,23 +159,44 @@ class ImportService:
                 import_file_id=import_file.id,
                 details={"records_created": len(parsed)},
             )
-        except (ImportParseError, OSError) as exc:
-            import_file.status = ImportFileStatus.FAILED
-            import_file.processing_completed_at = datetime.now(UTC)
-            import_file.error_code = getattr(exc, "code", "storage_read_error")
-            import_file.error_message = str(exc)[:500]
-            self.audit.record(
-                tenant_id=import_file.tenant_id,
-                athlete_id=import_file.athlete_id,
-                provider_key="manual_upload",
-                event_type="import_failed",
-                message="Import processing failed",
-                correlation_id=import_file.correlation_id,
-                import_file_id=import_file.id,
-                severity=EventSeverity.ERROR,
-                details={"error_code": import_file.error_code},
+        except ImportParseError as exc:
+            self._mark_failed(import_file, exc.code, str(exc))
+        except OSError:
+            self._mark_failed(import_file, "storage_read_error", "Stored upload could not be read")
+        except Exception:
+            self._mark_failed(
+                import_file, "unexpected_import_error", "Import processing failed safely"
             )
         return import_file
+
+    def _record_duplicate(self, duplicate: ImportFile) -> None:
+        self.audit.record(
+            tenant_id=duplicate.tenant_id,
+            athlete_id=duplicate.athlete_id,
+            provider_key="manual_upload",
+            event_type="duplicate_import_detected",
+            message="An identical file was already uploaded",
+            correlation_id=duplicate.correlation_id,
+            import_file_id=duplicate.id,
+            severity=EventSeverity.WARNING,
+        )
+
+    def _mark_failed(self, import_file: ImportFile, error_code: str, error_message: str) -> None:
+        import_file.status = ImportFileStatus.FAILED
+        import_file.processing_completed_at = datetime.now(UTC)
+        import_file.error_code = error_code
+        import_file.error_message = error_message[:500]
+        self.audit.record(
+            tenant_id=import_file.tenant_id,
+            athlete_id=import_file.athlete_id,
+            provider_key="manual_upload",
+            event_type="import_failed",
+            message="Import processing failed",
+            correlation_id=import_file.correlation_id,
+            import_file_id=import_file.id,
+            severity=EventSeverity.ERROR,
+            details={"error_code": error_code},
+        )
 
     def _persist_records(
         self, import_file: ImportFile, records: list[NormalizedImportRecord]

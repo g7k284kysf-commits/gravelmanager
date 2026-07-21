@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.domain.integrations import IntegrationCapability
+from app.integrations.redaction import contains_sensitive_keys
 from app.models.integration import (
     ConnectionStatus,
     EventSeverity,
@@ -9,7 +10,18 @@ from app.models.integration import (
     SyncStatus,
     SyncType,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class SafeConfigurationMixin(BaseModel):
+    @field_validator("configuration", check_fields=False)
+    @classmethod
+    def reject_secrets_in_configuration(
+        cls, value: dict[str, object] | None
+    ) -> dict[str, object] | None:
+        if value is not None and contains_sensitive_keys(value):
+            raise ValueError("Secrets must be supplied through the credentials field")
+        return value
 
 
 class ProviderResponse(BaseModel):
@@ -18,9 +30,10 @@ class ProviderResponse(BaseModel):
     capabilities: tuple[IntegrationCapability, ...]
     availability: str
     description: str
+    operational: bool
 
 
-class ConnectionCreate(BaseModel):
+class ConnectionCreate(SafeConfigurationMixin):
     provider_key: str = Field(min_length=2, max_length=80)
     display_name: str | None = Field(default=None, max_length=160)
     scopes: list[str] = Field(default_factory=list, max_length=50)
@@ -28,7 +41,7 @@ class ConnectionCreate(BaseModel):
     credentials: dict[str, object] | None = Field(default=None, repr=False)
 
 
-class ConnectionUpdate(BaseModel):
+class ConnectionUpdate(SafeConfigurationMixin):
     display_name: str | None = Field(default=None, min_length=1, max_length=160)
     scopes: list[str] | None = Field(default=None, max_length=50)
     configuration: dict[str, object] | None = None

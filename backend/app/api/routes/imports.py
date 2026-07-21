@@ -46,6 +46,10 @@ def upload_file(file: UploadedFile, db: DbSession, tenant: CurrentTenant) -> Imp
         db, local_storage(settings.storage_root, settings.max_upload_size_bytes)
     )
     try:
+        if file.size is not None and file.size > settings.max_upload_size_bytes:
+            raise StorageValidationError(
+                f"File exceeds the {settings.max_upload_size_bytes}-byte upload limit"
+            )
         imported = service.upload(
             tenant_id=tenant.tenant_id,
             athlete_id=tenant.athlete_id,
