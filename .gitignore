@@ -15,3 +15,4 @@ htmlcov/
 *.egg-info/
 *.db
 postgres_data/
+.uploads/
