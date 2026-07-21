@@ -67,6 +67,7 @@ export type Provider = {
   capabilities: IntegrationCapability[];
   availability: "coming_soon" | "manual_import_only";
   description: string;
+  operational: boolean;
 };
 
 export type IntegrationConnection = {
@@ -90,7 +91,7 @@ export type IntegrationSync = {
   connection_id: number;
   provider_key: string;
   sync_type: "full" | "incremental" | "manual" | "webhook" | "file_import";
-  status: "queued" | "running" | "succeeded" | "partially_succeeded" | "failed" | "cancelled";
+  status: "queued" | "running" | "succeeded" | "partially_succeeded" | "failed";
   correlation_id: string;
   requested_at: string;
   completed_at: string | null;
@@ -147,6 +148,13 @@ export type Competition = {
   discipline: string | null;
 };
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window === "undefined" ? null : localStorage.getItem("access_token");
   const isFormData = options.body instanceof FormData;
@@ -159,8 +167,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(payload.detail ?? "The request could not be completed");
+    const payload = (await response.json().catch(() => ({}))) as {
+      detail?: string | { message?: string; code?: string };
+    };
+    const detail = payload.detail;
+    const message = typeof detail === "string" ? detail : detail?.message;
+    const code = typeof detail === "object" ? detail?.code : undefined;
+    throw new ApiError(message ?? "The request could not be completed", response.status, code);
   }
   return response.status === 204 ? (undefined as T) : response.json() as Promise<T>;
 }
@@ -200,9 +213,10 @@ export const startConnectionSync = (id: number) =>
     method: "POST",
     body: JSON.stringify({ sync_type: "manual" }),
   });
-export const getSyncs = () => request<IntegrationSync[]>("/integrations/syncs");
-export const getIntegrationEvents = () =>
-  request<IntegrationEvent[]>("/integrations/events");
+export const getSyncs = (connectionId?: number) =>
+  request<IntegrationSync[]>(`/integrations/syncs${connectionId ? `?connection_id=${connectionId}` : ""}`);
+export const getIntegrationEvents = (connectionId?: number) =>
+  request<IntegrationEvent[]>(`/integrations/events${connectionId ? `?connection_id=${connectionId}` : ""}`);
 export const getImports = () => request<ImportFile[]>("/imports/files");
 export const uploadImport = (file: File) => {
   const body = new FormData();

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IntegrationManager, validateUpload } from "@/components/integrations/integration-manager";
 import {
+  ApiError,
   getConnections,
   getImports,
   getProviders,
@@ -24,8 +25,8 @@ vi.mock("@/lib/api", () => ({
 }));
 
 const providerData: Provider[] = [
-  { provider_key: "manual_upload", display_name: "Manual upload", capabilities: ["file_import"], availability: "manual_import_only", description: "Upload files." },
-  { provider_key: "garmin", display_name: "Garmin Connect", capabilities: ["oauth", "polling"], availability: "coming_soon", description: "Provider foundation." },
+  { provider_key: "manual_upload", display_name: "Manual upload", capabilities: ["file_import"], availability: "manual_import_only", description: "Upload files.", operational: true },
+  { provider_key: "garmin", display_name: "Garmin Connect", capabilities: ["oauth", "polling"], availability: "coming_soon", description: "Provider foundation.", operational: false },
 ];
 const connection: IntegrationConnection = { id: 4, provider_key: "manual_upload", display_name: "Manual upload", status: "connected", scopes: [], configuration: {}, last_successful_sync_at: null, last_sync_attempt_at: null, last_error_code: null, last_error_message: null, created_at: "2026-07-21T00:00:00Z", updated_at: "2026-07-21T00:00:00Z", revoked_at: null };
 const imported: ImportFile = { id: 7, original_filename: "ride.csv", file_extension: "csv", file_size_bytes: 20, status: "succeeded", uploaded_at: "2026-07-21T00:00:00Z", error_message: null, metadata: { records_created: 1 } };
@@ -85,6 +86,18 @@ it("shows safe upload errors without exposing backend details", async () => {
   fireEvent.change(input, { target: { files: [new File(["a,b\n1,2"], "ride.csv", { type: "text/csv" })] } });
   expect(await screen.findByText("Upload or processing failed. The file was not imported.")).toBeInTheDocument();
   expect(screen.queryByText("raw database failure")).not.toBeInTheDocument();
+});
+
+it("shows an understandable duplicate upload message", async () => {
+  vi.mocked(uploadImport).mockRejectedValue(
+    new ApiError("This file was already uploaded", 409, "duplicate_import"),
+  );
+  render(<IntegrationManager />);
+  const input = await screen.findByLabelText("Upload training file");
+  fireEvent.change(input, {
+    target: { files: [new File(["a,b\n1,2"], "ride.csv", { type: "text/csv" })] },
+  });
+  expect(await screen.findByText(/already imported/)).toBeInTheDocument();
 });
 
 it("renders a useful provider-load error and retry action", async () => {

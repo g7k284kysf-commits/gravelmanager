@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/integrations/status-badge";
 import {
+  ApiError,
   createConnection,
   getConnections,
   getImports,
@@ -79,8 +80,12 @@ export function IntegrationManager() {
       const history = await getImports();
       setImports(history);
       setUploadState("Import finished. Review the result below.");
-    } catch {
-      setUploadState("Upload or processing failed. The file was not imported.");
+    } catch (caught) {
+      setUploadState(
+        caught instanceof ApiError && caught.code === "duplicate_import"
+          ? "This file was already imported. Review the existing import in the history below."
+          : "Upload or processing failed. The file was not imported.",
+      );
     } finally {
       if (inputRef.current) inputRef.current.value = "";
     }
